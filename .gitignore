@@ -4,3 +4,5 @@ zabbix-db-data/
 loki-data/
 zabbix-alertscripts/
 .DS_Store
+**/*.tfvars
+**/*.pem
