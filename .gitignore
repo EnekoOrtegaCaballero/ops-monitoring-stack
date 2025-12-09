@@ -1,0 +1,6 @@
+.env
+grafana-data/
+zabbix-db-data/
+loki-data/
+zabbix-alertscripts/
+.DS_Store
