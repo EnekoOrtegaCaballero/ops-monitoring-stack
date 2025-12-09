@@ -3,3 +3,4 @@
 
 tailscale_auth_key = "tskey-auth-..."
 vps_monitoring_ip  = "100.x.y.z" # OJO: Usar la IP de Tailscale, no la pública
+db_password = "ChangeMe123!"
