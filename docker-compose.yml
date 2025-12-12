@@ -1,4 +1,15 @@
 services:
+  # --- INIT: Reparador de Permisos ---
+  # Se asegura de que Loki (10001) y Grafana (472) puedan escribir en sus volúmenes
+  init-perms:
+    image: alpine
+    container_name: init-perms
+    command: sh -c "chown -R 10001:10001 /tmp/loki && chown -R 472:472 /var/lib/grafana"
+    volumes:
+      - loki-data:/tmp/loki
+      - grafana-data:/var/lib/grafana
+    network_mode: none # No necesita red
+
   # --- Base de Datos (PostgreSQL 16) ---
   postgres:
     image: postgres:16-alpine
@@ -59,6 +70,9 @@ services:
 
   # --- Loki (Motor de Logs) ---
   loki:
+    depends_on:
+      init-perms:
+        condition: service_completed_succesfully
     image: grafana/loki:3.0.0
     container_name: loki
     restart: always
