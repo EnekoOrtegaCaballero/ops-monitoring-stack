@@ -30,11 +30,12 @@ schema_config:
 # CRÍTICO: Esto evita que el disco de 75GB se llene.
 compactor:
   working_directory: /tmp/loki/boltdb-shipper-compactor
-  shared_store: filesystem
+ # shared_store: filesystem
   compaction_interval: 10m
   retention_enabled: true
   retention_delete_delay: 2h
   retention_delete_worker_count: 150
+  delete_request_store: filesystem
 
 limits_config:
   retention_period: 336h  # 14 Días (Suficiente para forense básico)
