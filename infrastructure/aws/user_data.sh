@@ -71,7 +71,7 @@ services:
           memory: 2G
 
   zabbix-agent:
-    image: zabbix/zabbix-agent2:7.0-alpine
+    image: zabbix/zabbix-agent2:alpine-7.0-latest
     container_name: zabbix-agent
     restart: always
     privileged: true

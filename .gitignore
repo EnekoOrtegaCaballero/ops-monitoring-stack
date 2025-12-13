@@ -6,3 +6,5 @@ zabbix-alertscripts/
 .DS_Store
 **/*.tfvars
 **/*.pem
+.terraform/
+**/.terraform/*
