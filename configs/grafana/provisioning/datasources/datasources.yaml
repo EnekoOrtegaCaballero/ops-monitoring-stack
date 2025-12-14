@@ -20,8 +20,10 @@ datasources:
     user: Admin
     # Nota: La contraseña por defecto de Zabbix es 'zabbix'.
     # Si la cambias en la web, tendrás que actualizarla aquí.
-    password: zabbix
+    password: UkBqMNJ9P2YtG2
     jsonData:
       trends: true
       dbConnection: true
     isDefault: true # Este será el datasource principal
+    editable: true
+
