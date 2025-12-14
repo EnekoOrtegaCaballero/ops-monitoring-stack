@@ -58,6 +58,8 @@ resource "aws_instance" "sql_server" {
     TAILSCALE_KEY = var.tailscale_auth_key
     VPS_IP        = var.vps_monitoring_ip
     DB_PASSWORD   = var.db_password
+    ZABBIX_USER   = var.zabbix_user
+    ZABBIX_PASS   = var.zabbix_pass
   })
 }
 

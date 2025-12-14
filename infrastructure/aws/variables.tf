@@ -24,3 +24,13 @@ variable "project_name" {
   description = "Nombre del proyecto para etiquetas"
   default     = "sql-observability-lab"
 }
+
+variable "zabbix_user" {
+  description = "Usuario administrador de Zabbix"
+  default     = "Admin"
+}
+
+variable "zabbix_pass" {
+  description = "Contraseña administrador de Zabbix"
+  default     = "zabbix" # O la que tengas configurada
+}
