@@ -90,7 +90,7 @@ services:
           memory: 2G
 
   zabbix-agent:
-    image: zabbix/zabbix-agent2:alpine-7.0-latest
+    image: zabbix/zabbix-agent2:ubuntu-7.0-latest
     container_name: zabbix-agent
     restart: always
     privileged: true
@@ -99,6 +99,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./zabbix_agent2.conf:/etc/zabbix/zabbix_agent2.conf
+      # CAMBIO 2: Montamos el plugin que YA instalaste en el paso 2 del user_data
+      # Como ahora la imagen es Ubuntu y el host es Ubuntu, el binario es compatible.
+      - /usr/sbin/zabbix-agent2-plugin-mssql:/usr/sbin/zabbix-agent2-plugin-mssql
+      - /etc/zabbix/zabbix_agent2.d/plugins.d/mssql.conf:/etc/zabbix/zabbix_agent2.d/plugins.d/mssql.conf
 
   promtail:
     image: grafana/promtail:2.9.0
