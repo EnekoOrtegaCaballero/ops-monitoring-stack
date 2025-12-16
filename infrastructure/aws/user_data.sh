@@ -11,7 +11,7 @@ ZABBIX_USER="${ZABBIX_USER}"
 ZABBIX_PASS="${ZABBIX_PASS}"
 HOSTNAME="AWS-SQL-Target"
 
-# 2. Instalación de Docker, Python y Herramientas
+# 2. Instalación de Docker y Dependencias
 echo ">>> [INSTALL] Docker & Dependencies"
 apt-get update
 apt-get install -y curl apt-transport-https ca-certificates software-properties-common gnupg lsb-release python3-pip jq
@@ -93,7 +93,7 @@ services:
       resources:
         limits:
           memory: 2G
-          cpus: '1.0' # MEJORA: Limitamos a 1 CPU para que los tests no congelen la máquina
+          cpus: '1.0' # Limitamos a 1 CPU para que los tests no congelen la máquina
 
   zabbix-agent:
     # Usamos la imagen Ubuntu que trae el plugin nativo preinstalado
@@ -131,7 +131,7 @@ services:
       replicas: 0
 YAML
 
-# 7. GENERACIÓN DE SCRIPTS DE PRUEBA (NUEVO)
+# 7. GENERACIÓN DE SCRIPTS DE PRUEBA
 echo ">>> [TESTS] Generando scripts de validación en /opt/lab/tests..."
 mkdir -p /opt/lab/tests
 
@@ -140,8 +140,8 @@ cat <<EOF > /opt/lab/tests/load_test.sh
 #!/bin/bash
 SQLCMD="/opt/mssql-tools18/bin/sqlcmd"
 FLAGS="-C"
-# Si no se pasa pass por env, usa la de Terraform por defecto
-PASS="\${DB_PASSWORD:-$SA_PASSWORD}"
+# CORRECCIÓN DE SYNTAX ERROR: Usamos la variable directa
+PASS="$SA_PASSWORD"
 
 echo "--- INICIANDO CARGA GENERAL ---"
 while true; do
@@ -171,7 +171,7 @@ cat <<EOF > /opt/lab/tests/force_locks.sh
 #!/bin/bash
 SQLCMD="/opt/mssql-tools18/bin/sqlcmd"
 FLAGS="-C"
-PASS="\${DB_PASSWORD:-$SA_PASSWORD}"
+PASS="$SA_PASSWORD"
 
 echo "--- PREPARANDO GUERRA DE BLOQUEOS ---"
 docker exec sql-server \$SQLCMD -S localhost -U sa -P "\$PASS" \$FLAGS -Q "
@@ -207,7 +207,7 @@ cat <<EOF > /opt/lab/tests/trigger_deadlock.sh
 #!/bin/bash
 SQLCMD="/opt/mssql-tools18/bin/sqlcmd"
 FLAGS="-C"
-PASS="\${DB_PASSWORD:-$SA_PASSWORD}"
+PASS="$SA_PASSWORD"
 echo "--- PROVOCANDO DEADLOCK ---"
 docker exec sql-server \$SQLCMD -S localhost -U sa -P "\$PASS" \$FLAGS -Q "
     IF DB_ID('TestDB') IS NULL CREATE DATABASE TestDB; USE TestDB;
@@ -230,7 +230,7 @@ chmod +x /opt/lab/tests/*.sh
 echo ">>> [START] Levantando contenedores..."
 docker compose up -d
 
-# 9. AUTO-CONFIGURACIÓN VÍA API DE ZABBIX (Python Script)
+# 9. AUTO-CONFIGURACIÓN VÍA API DE ZABBIX
 echo ">>> [API] Esperando 30s para auto-registro..."
 sleep 30
 
@@ -284,7 +284,7 @@ try:
     if interface_info['result']:
         interface_id = interface_info['result'][0]['interfaceid']
         
-        update_interface = api_call("hostinterface.update", {
+        api_call("hostinterface.update", {
             "interfaceid": interface_id,
             "useip": 1,
             "ip": HOST_IP,
@@ -292,10 +292,10 @@ try:
             "port": "10050",
             "main": 1
         }, auth_token)
-        print(f"Interface updated to {HOST_IP}: {update_interface}")
+        print(f"Interface updated to {HOST_IP}")
 
     # 4. Crear/Actualizar Macros (CORRECCIÓN 3: PROTOCOLO SQLSERVER Y SSL)
-    # Aqui estaba el fallo principal: 'tcp://' ya no sirve y faltaba 'trustServerCertificate'
+    # Nota: La barra invertida en las macros es necesaria para que Bash no intente expandirlas
     macros = [
         {"macro": "{\$MSSQL.URI}", "value": "sqlserver://127.0.0.1:1433?trustServerCertificate=true"},
         {"macro": "{\$MSSQL.USER}", "value": "sa"},
@@ -319,4 +319,3 @@ echo ">>> [API] Ejecutando script de configuración..."
 python3 /opt/lab/configure_zabbix.py
 
 echo ">>> [DONE] Setup finalizado."
-EOF
