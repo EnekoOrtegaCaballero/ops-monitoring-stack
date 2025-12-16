@@ -31,19 +31,22 @@ tailscale up --authkey=$TAILSCALE_AUTH_KEY --hostname=aws-sql-target --accept-ro
 MY_TS_IP=$(tailscale ip -4)
 echo ">>> [NET] Mi IP de Tailscale es: $MY_TS_IP"
 
-# 4. Configurar Agente Zabbix (Configuración FÍSICA para evitar fallos)
-# Usamos la IP de Tailscale detectada para Server y ServerActive
-mkdir -p /opt/lab
-cat <<EOF > /opt/lab/zabbix_agent2.conf
-PidFile=/tmp/zabbix_agent2.pid
-LogType=console
-Server=$VPS_MONITORING_IP
-ServerActive=$VPS_MONITORING_IP
-Hostname=$HOSTNAME
-HostMetadata=Linux SQLServer
-ControlSocket=/tmp/agent.sock
-Include=/etc/zabbix/zabbix_agent2.d/*.conf
-EOF
+# 4. Configurar Agente Zabbix
+  # CORRECCIÓN 1: Incluimos explícitamente la carpeta de plugins
+  mkdir -p /opt/lab
+  cat <<CONF > /opt/lab/zabbix_agent2.conf
+  PidFile=/tmp/zabbix_agent2.pid
+  LogType=console
+  Server=$VPS_MONITORING_IP
+  ServerActive=$VPS_MONITORING_IP
+  Hostname=$HOSTNAME
+  HostMetadata=Linux SQLServer
+  ControlSocket=/tmp/agent.sock
+  # Carga de configs generales
+  Include=/etc/zabbix/zabbix_agent2.d/*.conf
+  # IMPORTANTE: Carga recursiva de plugins (donde vive mssql.conf)
+  Include=/etc/zabbix/zabbix_agent2.d/plugins.d/*.conf
+CONF
 
 # 5. Configurar Promtail
 mkdir -p /opt/lab/promtail
@@ -70,56 +73,63 @@ scrape_configs:
 YAML
 
 # 6. Generar docker-compose.yml
-echo ">>> [DOCKER] Generando docker-compose.yml"
-cat <<YAML > docker-compose.yml
-version: '3.8'
-services:
-  sql-server:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    container_name: sql-server
-    restart: always
-    environment:
-      - ACCEPT_EULA=Y
-      - MSSQL_SA_PASSWORD=$SA_PASSWORD
-      - MSSQL_PID=Developer
-    ports:
-      - "1433:1433"
-    deploy:
-      resources:
-        limits:
-          memory: 2G
 
-  zabbix-agent:
-    image: zabbix/zabbix-agent2:ubuntu-7.0-latest
-    container_name: zabbix-agent
-    restart: always
-    privileged: true
-    user: root
-    network_mode: "host"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./zabbix_agent2.conf:/etc/zabbix/zabbix_agent2.conf
-      # CAMBIO 2: Montamos el plugin que YA instalaste en el paso 2 del user_data
-      # Como ahora la imagen es Ubuntu y el host es Ubuntu, el binario es compatible.
-      - /usr/sbin/zabbix-agent2-plugin-mssql:/usr/sbin/zabbix-agent2-plugin-mssql
-      - /etc/zabbix/zabbix_agent2.d/plugins.d/mssql.conf:/etc/zabbix/zabbix_agent2.d/plugins.d/mssql.conf
+# 6. Generar docker-compose.yml
+  # CORRECCIÓN 2: Imagen Ubuntu, Sin comillas en pass, Sin volúmenes extraños
+  echo ">>> [DOCKER] Generando docker-compose.yml"
+  cat <<YAML > docker-compose.yml
+  version: '3.8'
+  services:
+    sql-server:
+      image: mcr.microsoft.com/mssql/server:2022-latest
+      container_name: sql-server
+      restart: always
+      environment:
+        - ACCEPT_EULA=Y
+        # OJO: Sin comillas aqui para evitar problemas de parsing
+        - MSSQL_SA_PASSWORD=$SA_PASSWORD
+        - MSSQL_PID=Developer
+      ports:
+        - "1433:1433"
+      deploy:
+        resources:
+          limits:
+            memory: 2G
 
-  promtail:
-    image: grafana/promtail:2.9.0
-    container_name: promtail
-    restart: always
-    command: -config.file=/etc/promtail/config.yaml
-    volumes:
-      - /opt/lab/promtail/config.yaml:/etc/promtail/config.yaml
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/run/docker.sock:/var/run/docker.sock
+    zabbix-agent:
+      # Usamos la imagen Ubuntu que trae el plugin nativo
+      image: zabbix/zabbix-agent2:ubuntu-7.0-latest
+      container_name: zabbix-agent
+      restart: always
+      privileged: true
+      user: root
+      network_mode: "host"
+      environment:
+        - ZBX_HOSTNAME=$HOSTNAME
+        - ZBX_SERVER=$VPS_MONITORING_IP
+        - ZBX_SERVERACTIVE=$VPS_MONITORING_IP
+        # Forzamos carga del modulo por seguridad
+        - ZBX_LOADMODULE=zabbix-agent2-plugin-mssql
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+        - ./zabbix_agent2.conf:/etc/zabbix/zabbix_agent2.conf
 
-  chaos-monkey:
-    image: polinux/stress-ng
-    container_name: chaos-monkey
-    command: --cpu 2 --timeout 60s
-    deploy:
-      replicas: 0
+    promtail:
+      image: grafana/promtail:2.9.0
+      container_name: promtail
+      restart: always
+      command: -config.file=/etc/promtail/config.yaml
+      volumes:
+        - /opt/lab/promtail/config.yaml:/etc/promtail/config.yaml
+        - /var/lib/docker/containers:/var/lib/docker/containers:ro
+        - /var/run/docker.sock:/var/run/docker.sock
+
+    chaos-monkey:
+      image: polinux/stress-ng
+      container_name: chaos-monkey
+      command: --cpu 2 --timeout 60s
+      deploy:
+        replicas: 0
 YAML
 
 # 7. Arrancar Servicios
