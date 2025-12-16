@@ -32,20 +32,20 @@ MY_TS_IP=$(tailscale ip -4)
 echo ">>> [NET] Mi IP de Tailscale es: $MY_TS_IP"
 
 # 4. Configurar Agente Zabbix
-  # CORRECCIÓN 1: Incluimos explícitamente la carpeta de plugins
-  mkdir -p /opt/lab
-  cat <<CONF > /opt/lab/zabbix_agent2.conf
-  PidFile=/tmp/zabbix_agent2.pid
-  LogType=console
-  Server=$VPS_MONITORING_IP
-  ServerActive=$VPS_MONITORING_IP
-  Hostname=$HOSTNAME
-  HostMetadata=Linux SQLServer
-  ControlSocket=/tmp/agent.sock
-  # Carga de configs generales
-  Include=/etc/zabbix/zabbix_agent2.d/*.conf
-  # IMPORTANTE: Carga recursiva de plugins (donde vive mssql.conf)
-  Include=/etc/zabbix/zabbix_agent2.d/plugins.d/*.conf
+# CORRECCIÓN 1: Aseguramos que lea la config del plugin MSSQL
+mkdir -p /opt/lab
+cat <<CONF > /opt/lab/zabbix_agent2.conf
+PidFile=/tmp/zabbix_agent2.pid
+LogType=console
+Server=$VPS_MONITORING_IP
+ServerActive=$VPS_MONITORING_IP
+Hostname=$HOSTNAME
+HostMetadata=Linux SQLServer
+ControlSocket=/tmp/agent.sock
+# Carga de configs generales
+Include=/etc/zabbix/zabbix_agent2.d/*.conf
+# CRÍTICO: Carga recursiva de plugins (donde vive mssql.conf)
+Include=/etc/zabbix/zabbix_agent2.d/plugins.d/*.conf
 CONF
 
 # 5. Configurar Promtail
@@ -73,71 +73,164 @@ scrape_configs:
 YAML
 
 # 6. Generar docker-compose.yml
+# CORRECCIÓN 2: Imagen Ubuntu, Sin comillas en pass y Límite de CPU
+echo ">>> [DOCKER] Generando docker-compose.yml"
+cat <<YAML > docker-compose.yml
+version: '3.8'
+services:
+  sql-server:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sql-server
+    restart: always
+    environment:
+      - ACCEPT_EULA=Y
+      # IMPORTANTE: Sin comillas para evitar errores de parsing en SQL Server
+      - MSSQL_SA_PASSWORD=$SA_PASSWORD
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0' # MEJORA: Limitamos a 1 CPU para que los tests no congelen la máquina
 
-# 6. Generar docker-compose.yml
-  # CORRECCIÓN 2: Imagen Ubuntu, Sin comillas en pass, Sin volúmenes extraños
-  echo ">>> [DOCKER] Generando docker-compose.yml"
-  cat <<YAML > docker-compose.yml
-  version: '3.8'
-  services:
-    sql-server:
-      image: mcr.microsoft.com/mssql/server:2022-latest
-      container_name: sql-server
-      restart: always
-      environment:
-        - ACCEPT_EULA=Y
-        # OJO: Sin comillas aqui para evitar problemas de parsing
-        - MSSQL_SA_PASSWORD=$SA_PASSWORD
-        - MSSQL_PID=Developer
-      ports:
-        - "1433:1433"
-      deploy:
-        resources:
-          limits:
-            memory: 2G
+  zabbix-agent:
+    # Usamos la imagen Ubuntu que trae el plugin nativo preinstalado
+    image: zabbix/zabbix-agent2:ubuntu-7.0-latest
+    container_name: zabbix-agent
+    restart: always
+    privileged: true
+    user: root
+    network_mode: "host"
+    environment:
+      - ZBX_HOSTNAME=$HOSTNAME
+      - ZBX_SERVER=$VPS_MONITORING_IP
+      - ZBX_SERVERACTIVE=$VPS_MONITORING_IP
+      # Forzamos carga del modulo por seguridad
+      - ZBX_LOADMODULE=zabbix-agent2-plugin-mssql
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./zabbix_agent2.conf:/etc/zabbix/zabbix_agent2.conf
 
-    zabbix-agent:
-      # Usamos la imagen Ubuntu que trae el plugin nativo
-      image: zabbix/zabbix-agent2:ubuntu-7.0-latest
-      container_name: zabbix-agent
-      restart: always
-      privileged: true
-      user: root
-      network_mode: "host"
-      environment:
-        - ZBX_HOSTNAME=$HOSTNAME
-        - ZBX_SERVER=$VPS_MONITORING_IP
-        - ZBX_SERVERACTIVE=$VPS_MONITORING_IP
-        # Forzamos carga del modulo por seguridad
-        - ZBX_LOADMODULE=zabbix-agent2-plugin-mssql
-      volumes:
-        - /var/run/docker.sock:/var/run/docker.sock
-        - ./zabbix_agent2.conf:/etc/zabbix/zabbix_agent2.conf
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: promtail
+    restart: always
+    command: -config.file=/etc/promtail/config.yaml
+    volumes:
+      - /opt/lab/promtail/config.yaml:/etc/promtail/config.yaml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
 
-    promtail:
-      image: grafana/promtail:2.9.0
-      container_name: promtail
-      restart: always
-      command: -config.file=/etc/promtail/config.yaml
-      volumes:
-        - /opt/lab/promtail/config.yaml:/etc/promtail/config.yaml
-        - /var/lib/docker/containers:/var/lib/docker/containers:ro
-        - /var/run/docker.sock:/var/run/docker.sock
-
-    chaos-monkey:
-      image: polinux/stress-ng
-      container_name: chaos-monkey
-      command: --cpu 2 --timeout 60s
-      deploy:
-        replicas: 0
+  chaos-monkey:
+    image: polinux/stress-ng
+    container_name: chaos-monkey
+    command: --cpu 2 --timeout 60s
+    deploy:
+      replicas: 0
 YAML
 
-# 7. Arrancar Servicios
+# 7. GENERACIÓN DE SCRIPTS DE PRUEBA (NUEVO)
+echo ">>> [TESTS] Generando scripts de validación en /opt/lab/tests..."
+mkdir -p /opt/lab/tests
+
+# Script A: Carga General (CPU + Transacciones)
+cat <<EOF > /opt/lab/tests/load_test.sh
+#!/bin/bash
+SQLCMD="/opt/mssql-tools18/bin/sqlcmd"
+FLAGS="-C"
+# Si no se pasa pass por env, usa la de Terraform por defecto
+PASS="\${DB_PASSWORD:-$SA_PASSWORD}"
+
+echo "--- INICIANDO CARGA GENERAL ---"
+while true; do
+    for i in {1..5}; do
+        docker exec sql-server \$SQLCMD -S localhost -U sa -P "\$PASS" \$FLAGS -Q "
+            SET NOCOUNT ON;
+            IF DB_ID('TestDB') IS NULL CREATE DATABASE TestDB;
+            USE TestDB;
+            IF OBJECT_ID('LoadTable', 'U') IS NULL CREATE TABLE LoadTable (ID INT IDENTITY, Payload CHAR(100));
+            DECLARE @i INT = 0;
+            WHILE @i < 500
+            BEGIN
+                INSERT INTO LoadTable (Payload) VALUES ('Carga-' + CAST(@i AS VARCHAR));
+                SELECT COUNT(*) FROM sys.objects A CROSS JOIN sys.objects B;
+                DELETE FROM LoadTable WHERE ID = SCOPE_IDENTITY();
+                SET @i = @i + 1;
+            END
+        " > /dev/null 2>&1 &
+    done
+    wait
+    echo -n "🔥"
+done
+EOF
+
+# Script B: Guerra de Bloqueos (Agresivo)
+cat <<EOF > /opt/lab/tests/force_locks.sh
+#!/bin/bash
+SQLCMD="/opt/mssql-tools18/bin/sqlcmd"
+FLAGS="-C"
+PASS="\${DB_PASSWORD:-$SA_PASSWORD}"
+
+echo "--- PREPARANDO GUERRA DE BLOQUEOS ---"
+docker exec sql-server \$SQLCMD -S localhost -U sa -P "\$PASS" \$FLAGS -Q "
+    IF DB_ID('TestDB') IS NULL CREATE DATABASE TestDB;
+"
+docker exec sql-server \$SQLCMD -S localhost -U sa -P "\$PASS" \$FLAGS -Q "
+    USE TestDB;
+    IF OBJECT_ID('LockWar', 'U') IS NOT NULL DROP TABLE LockWar;
+    CREATE TABLE LockWar (ID INT, Val CHAR(10));
+    INSERT INTO LockWar VALUES (1, 'Peace');
+"
+
+echo "--- INICIANDO BLOQUEOS (UPDATE vs UPDATE) ---"
+while true; do
+    # Villano
+    docker exec sql-server \$SQLCMD -S localhost -U sa -P "\$PASS" \$FLAGS -Q "
+        USE TestDB; BEGIN TRAN; UPDATE LockWar SET Val = 'War' WHERE ID = 1; WAITFOR DELAY '00:00:05'; ROLLBACK;
+    " > /dev/null 2>&1 &
+    sleep 1
+    # Víctimas
+    for i in {1..5}; do
+        docker exec sql-server \$SQLCMD -S localhost -U sa -P "\$PASS" \$FLAGS -Q "
+            USE TestDB; SET LOCK_TIMEOUT 2000; UPDATE LockWar SET Val = 'Victim' WHERE ID = 1;
+        " > /dev/null 2>&1 &
+    done
+    wait
+    echo -n "🔒"
+done
+EOF
+
+# Script C: Trigger Deadlock
+cat <<EOF > /opt/lab/tests/trigger_deadlock.sh
+#!/bin/bash
+SQLCMD="/opt/mssql-tools18/bin/sqlcmd"
+FLAGS="-C"
+PASS="\${DB_PASSWORD:-$SA_PASSWORD}"
+echo "--- PROVOCANDO DEADLOCK ---"
+docker exec sql-server \$SQLCMD -S localhost -U sa -P "\$PASS" \$FLAGS -Q "
+    IF DB_ID('TestDB') IS NULL CREATE DATABASE TestDB; USE TestDB;
+    IF OBJECT_ID('TableA') IS NULL CREATE TABLE TableA (ID INT);
+    IF OBJECT_ID('TableB') IS NULL CREATE TABLE TableB (ID INT);
+    DELETE FROM TableA; DELETE FROM TableB; INSERT INTO TableA VALUES (1); INSERT INTO TableB VALUES (1);
+"
+docker exec sql-server \$SQLCMD -S localhost -U sa -P "\$PASS" \$FLAGS -Q "
+    USE TestDB; BEGIN TRAN; UPDATE TableA SET ID = 2; WAITFOR DELAY '00:00:05'; UPDATE TableB SET ID = 2; COMMIT;
+" > /dev/null 2>&1 &
+docker exec sql-server \$SQLCMD -S localhost -U sa -P "\$PASS" \$FLAGS -Q "
+    USE TestDB; BEGIN TRAN; UPDATE TableB SET ID = 2; WAITFOR DELAY '00:00:05'; UPDATE TableA SET ID = 2; COMMIT;
+" > /dev/null 2>&1 &
+echo "Deadlock lanzado."
+EOF
+
+chmod +x /opt/lab/tests/*.sh
+
+# 8. Arrancar Servicios
 echo ">>> [START] Levantando contenedores..."
 docker compose up -d
 
-# 8. AUTO-CONFIGURACIÓN VÍA API DE ZABBIX (Python Script)
-# Esperamos un poco para asegurar que el agente se ha registrado
+# 9. AUTO-CONFIGURACIÓN VÍA API DE ZABBIX (Python Script)
 echo ">>> [API] Esperando 30s para auto-registro..."
 sleep 30
 
@@ -187,7 +280,6 @@ try:
     print(f"Found Host ID: {host_id}")
 
     # 3. Actualizar Interfaz (Forzar IP de Tailscale y Puerto 10050)
-    # Primero obtenemos la interfaz actual
     interface_info = api_call("hostinterface.get", {"hostids": host_id}, auth_token)
     if interface_info['result']:
         interface_id = interface_info['result'][0]['interfaceid']
@@ -202,17 +294,16 @@ try:
         }, auth_token)
         print(f"Interface updated to {HOST_IP}: {update_interface}")
 
-    # 4. Crear/Actualizar Macros (Credenciales SQL)
+    # 4. Crear/Actualizar Macros (CORRECCIÓN 3: PROTOCOLO SQLSERVER Y SSL)
+    # Aqui estaba el fallo principal: 'tcp://' ya no sirve y faltaba 'trustServerCertificate'
     macros = [
-        {"macro": "{\$MSSQL.URI}", "value": f"tcp://{HOST_IP}:1433"},
+        {"macro": "{\$MSSQL.URI}", "value": "sqlserver://127.0.0.1:1433?trustServerCertificate=true"},
         {"macro": "{\$MSSQL.USER}", "value": "sa"},
         {"macro": "{\$MSSQL.PASSWORD}", "value": MSSQL_PASS},
         {"macro": "{\$MSSQL.HOST}", "value": HOST_IP},
         {"macro": "{\$MSSQL.PORT}", "value": "1433"}
     ]
     
-    # Hay que borrarlas primero si existen (para evitar duplicados) o usar host.update
-    # Usaremos host.update para inyectar macros
     update_macros = api_call("host.update", {
         "hostid": host_id,
         "macros": macros
