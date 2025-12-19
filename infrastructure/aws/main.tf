@@ -57,16 +57,6 @@ resource "aws_security_group" "lab_sg" {
     cidr_blocks = ["${chomp(data.http.my_public_ip.response_body)}/32"]
   }
 
-  # INGRESS: Opcional - SQL Server desde tu PC (Si quisieras conectar sin VPN)
-  # Si solo vas a usar Tailscale, puedes comentar este bloque
-  ingress {
-    description = "SQL Server Directo"
-    from_port   = 1433
-    to_port     = 1433
-    protocol    = "tcp"
-    cidr_blocks = ["${chomp(data.http.my_public_ip.response_body)}/32"]
-  }
-
   # EGRESS: Permitir todo (necesario para descargar Docker, updates, etc.)
   egress {
     from_port   = 0
