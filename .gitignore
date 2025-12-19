@@ -9,3 +9,4 @@ zabbix-alertscripts/
 .terraform/
 **/.terraform/*
 *.tfstate
+*.tfstate.*
