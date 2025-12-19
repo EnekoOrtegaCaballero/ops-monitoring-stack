@@ -8,3 +8,4 @@ zabbix-alertscripts/
 **/*.pem
 .terraform/
 **/.terraform/*
+*.tfstate
