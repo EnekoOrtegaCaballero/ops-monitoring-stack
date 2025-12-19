@@ -38,7 +38,7 @@ Este repositorio contiene la infraestructura como código (IaC) para desplegar u
     ```
 
 ## 🔐 Seguridad (SIEM Básico)
-El stack incluye configuración para ingerir logs de `/var/log/auth.log` del host, permitiendo detectar intentos de intrusión SSH directamente desde Grafana.
+El stack incluye configuración para ingerir logs de `/var/log/auth.log` del host, permitiendo detectar intentos de intrusión SSH directamente desde Grafana aunque en este caso concreto, no habrá tales ya que no esta abierto puerto al conectarme por VPN.
 
 ## 📂 Estructura
 * `/configs`: Archivos de configuración de servicios (inyectados vía volumen).
