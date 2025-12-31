@@ -38,7 +38,7 @@ services:
     environment:
       DB_SERVER_HOST: postgres
       POSTGRES_USER: ${POSTGRES_USER:-zabbix}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zabbix_pwd_secreto}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: zabbix
       ZBX_CACHESIZE: 256M        # Aumentado para 8GB RAM
       ZBX_HISTORYCACHESIZE: 128M
