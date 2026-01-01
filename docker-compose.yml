@@ -55,7 +55,7 @@ services:
     container_name: zabbix-web
     restart: always
     ports:
-      - "8080:8080"
+      - "0.0.0.0:8080:8080"
     environment:
       ZBX_SERVER_HOST: zabbix-server
       DB_SERVER_HOST: postgres
@@ -94,6 +94,7 @@ services:
     volumes:
       - ./configs/promtail/promtail-config.yaml:/etc/promtail/config.yaml
       - /var/log:/var/log:ro  # Lee los logs del host (SSH, Auth)
+      - ../wordpress/wp-content/themes/eneko-ops:/var/log/wordpress_audit:ro
     depends_on:
       - loki
     networks:
@@ -105,7 +106,7 @@ services:
     container_name: grafana
     restart: always
     ports:
-      - "3000:3000"
+      - "3001:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./configs/grafana/provisioning:/etc/grafana/provisioning
