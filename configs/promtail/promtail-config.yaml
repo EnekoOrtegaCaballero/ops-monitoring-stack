@@ -52,7 +52,7 @@ scrape_configs:
         labels:
           job: wordpress_security
           host: vps-ovh
-          __path__: /var/log/wordpress_audit/auth_audit.log
+          __path__: /mnt/wordpress_audit/auth_audit.log
     pipeline_stages:
       - json:
           expressions:

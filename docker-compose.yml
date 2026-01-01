@@ -94,7 +94,7 @@ services:
     volumes:
       - ./configs/promtail/promtail-config.yaml:/etc/promtail/config.yaml
       - /var/log:/var/log:ro  # Lee los logs del host (SSH, Auth)
-      - ../wordpress/wp-content/themes/eneko-ops:/var/log/wordpress_audit:ro
+      - ../wordpress/wp-content/themes/eneko-ops:/mnt/wordpress_audit:ro
     depends_on:
       - loki
     networks:
